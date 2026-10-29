@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Gravity Simulator - Fixed</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #111; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: white;
+            font-family: sans-serif;
+            overflow: hidden;
+        }
+        canvas {
+            background-color: #000;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+        }
+        
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+        }
+        #openSettingsBtn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            padding: 10px 15px;
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 5px;
+            cursor: pointer;
+            z-index: 10;
+        }
+        #openSettingsBtn:hover {
+            background: #444;
+        }
+        #controlPanel {
+            position: absolute;
+            top: 20px;
+            right: -350px;
+            width: 300px;
+            background-color: rgba(30, 30, 30, 0.95);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            box-shadow: -5px 5px 15px rgba(0,0,0,0.5);
+            transition: right 0.3s ease;
+            max-height: 80vh;
+            overflow-y: auto;
+            z-index: 20;
+        }
+        #controlPanel.open {
+            right: 20px;
+        }
+        .close-btn {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            background: transparent;
+            border: none;
+            color: #aaa;
+            font-size: 24px;
+            cursor: pointer;
+        }
+        .close-btn:hover {
+            color: white;
+        }
+        .control-group {
+            border: 1px solid #555;
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+            background: rgba(0,0,0,0.3);
+        }
+        .control-group h4 {
+            margin: 0 0 10px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .input-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+        .input-row label {
+            font-size: 12px;
+            width: 40%;
+        }
+        .input-row input {
+            width: 50%;
+            background: #222;
+            border: 1px solid #555;
+            color: white;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+        button.action-btn {
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
+            background: #00ccff;
+            color: black;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        button.action-btn:hover {
+            background: #0099cc;
+        }
+        button.remove-btn {
+            background: #ff5555;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            padding: 2px 8px;
+            font-weight: bold;
+        }
+        button.remove-btn:hover {
+            background: #cc3333;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui"></div>
+    
+    <button id="openSettingsBtn">Control Panel</button>
+
+    <div id="controlPanel">
+        <button class="close-btn" id="closeSettingsBtn">&times;</button>
+        <h3 style="margin-top:0;">Control Panel</h3>
+        
+        <div class="control-group">
+            <h4>Star Configuration</h4>
+            <div class="input-row">
+                <label>Mass</label>
+                <input type="number" id="starMass" value="5000" step="100" min="100">
+            </div>
+        </div>
+
+        <div id="planetsContainer"></div>
+
+        <button class="action-btn" id="addPlanetBtn" style="background:#444; color:white;">+ Add Planet</button>
+        <button class="action-btn" id="applyBtn">Apply & Restart</button>
+    </div>
+
+    <canvas id="simCanvas" width="800" height="800"></canvas>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        const G = .5;
+        const STAR_X = 400;
+        const STAR_Y = 400;
+
+        class Body {
+            constructor(x, y, vx, vy, mass, radius, color) {
+                this.x = x;
+                this.y = y;
+                this.vx = vx;
+                this.vy = vy;
+                this.mass = mass;
+                this.radius = radius;
+                this.color = color;
+                this.trail = [];
+            }
+
+            updatePosition() {
+                this.x += this.vx;
+                this.y += this.vy;
+
+                this.trail.push({x: this.x, y: this.y});
+                if (this.trail.length > 100) {
+                    this.trail.shift();
+                }
+            }
+
+            draw() {
+                ctx.beginPath();
+                for (let i = 0; i < this.trail.length; i++) {
+                    const point = this.trail[i];
+                    if (i === 0) ctx.moveTo(point.x, point.y);
+                    else ctx.lineTo(point.x, point.y);
+                }
+                ctx.strokeStyle = this.color + '88';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+            }
+        }
+
+        const bodies = [];
+        
+        let starConfig = { mass: 5000, radius: 15, color: '#ffcc00' };
+        let planetsConfig = [
+            { x: 400, y: 200, vx: 3.53, vy: 0, mass: 10, radius: 5, color: '#00ccff' },
+            { x: 400, y: 600, vx: -2.5, vy: 0, mass: 5, radius: 4, color: '#ff5555' }
+        ];
+
+        function generateRandomColor() {
+            const letters = '89ABCDEF';
+            let color = '#';
+            for (let i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * letters.length)];
+            }
+            return color;
+        }
+
+        // Reads values from UI DOM safely with fallback protection
+        function syncInputsToConfig() {
+            const starInput = document.getElementById('starMass');
+            if (starInput) {
+                starConfig.mass = Math.max(100, parseFloat(starInput.value) || 5000);
+            }
+
+            planetsConfig.forEach((p, index) => {
+                const massEl = document.getElementById(`p_mass_${index}`);
+                const xEl = document.getElementById(`p_x_${index}`);
+                const yEl = document.getElementById(`p_y_${index}`);
+                const vxEl = document.getElementById(`p_vx_${index}`);
+                const vyEl = document.getElementById(`p_vy_${index}`);
+
+                if (massEl) p.mass = Math.max(0.1, parseFloat(massEl.value) || 1);
+                if (xEl) p.x = parseFloat(xEl.value) || STAR_X;
+                if (yEl) p.y = parseFloat(yEl.value) || STAR_Y;
+                if (vxEl) p.vx = parseFloat(vxEl.value) || 0;
+                if (vyEl) p.vy = parseFloat(vyEl.value) || 0;
+                
+                // Scale visual radius proportionally to mass
+                p.radius = Math.max(2, Math.min(12, Math.round(Math.cbrt(p.mass) * 2)));
+            });
+        }
+
+        function resetSimulation() {
+            bodies.length = 0;
+            
+            // Re-add central Star
+            bodies.push(new Body(STAR_X, STAR_Y, 0, 0, starConfig.mass, starConfig.radius, starConfig.color));
+            
+            // Re-add planets
+            planetsConfig.forEach(p => {
+                bodies.push(new Body(p.x, p.y, p.vx, p.vy, p.mass, p.radius, p.color));
+            });
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            for (let i = 0; i < bodies.length; i++) {
+                for (let j = 0; j < bodies.length; j++) {
+                    if (i === j) continue;
+
+                    let bodyA = bodies[i];
+                    let bodyB = bodies[j];
+
+                    let dx = bodyB.x - bodyA.x;
+                    let dy = bodyB.y - bodyA.y;
+                    
+                    let realDistance = Math.sqrt(dx * dx + dy * dy);
+                    if (realDistance === 0) continue;
+
+                    // Distance softening prevents NaN/infinite gravity catapults on close encounters
+                    let softDistance = Math.max(realDistance, 8); 
+                    let force = G * (bodyA.mass * bodyB.mass) / (softDistance * softDistance);
+
+                    let ax = (force * dx / realDistance) / bodyA.mass;
+                    let ay = (force * dy / realDistance) / bodyA.mass;
+
+                    bodyA.vx += ax;
+                    bodyA.vy += ay;
+                }
+            }
+
+            for (let body of bodies) {
+                body.updatePosition();
+                body.draw();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // --- UI & Event Management ---
+        const controlPanel = document.getElementById('controlPanel');
+        const openSettingsBtn = document.getElementById('openSettingsBtn');
+        const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+        const planetsContainer = document.getElementById('planetsContainer');
+
+        openSettingsBtn.addEventListener('click', () => controlPanel.classList.add('open'));
+        closeSettingsBtn.addEventListener('click', () => controlPanel.classList.remove('open'));
+
+        function renderPlanetControls() {
+            planetsContainer.innerHTML = '';
+            planetsConfig.forEach((p, index) => {
+                planetsContainer.innerHTML += `
+                    <div class="control-group">
+                        <h4>Planet ${index + 1} <button class="remove-btn" data-index="${index}">&times;</button></h4>
+                        <div class="input-row"><label>Mass</label><input type="number" id="p_mass_${index}" value="${p.mass}" step="1" min="0.1"></div>
+                        <div class="input-row"><label>Start X</label><input type="number" id="p_x_${index}" value="${p.x}" step="10"></div>
+                        <div class="input-row"><label>Start Y</label><input type="number" id="p_y_${index}" value="${p.y}" step="10"></div>
+                        <div class="input-row"><label>Start Vx</label><input type="number" id="p_vx_${index}" value="${p.vx}" step="0.1"></div>
+                        <div class="input-row"><label>Start Vy</label><input type="number" id="p_vy_${index}" value="${p.vy}" step="0.1"></div>
+                    </div>
+                `;
+            });
+        }
+
+        // Dynamic event delegation for Planet Removal buttons
+        planetsContainer.addEventListener('click', (e) => {
+            if (e.target.classList.contains('remove-btn')) {
+                const index = parseInt(e.target.getAttribute('data-index'));
+                syncInputsToConfig();
+                planetsConfig.splice(index, 1);
+                renderPlanetControls();
+                resetSimulation();
+            }
+        });
+
+        // Add planet with mathematically stable circular orbital velocity
+        document.getElementById('addPlanetBtn').addEventListener('click', () => {
+            syncInputsToConfig();
+            
+            // Select random distance (100px to 300px from star) and angle
+            const radius = 100 + Math.random() * 200;
+            const angle = Math.random() * Math.PI * 2;
+            
+            const x = parseFloat((STAR_X + Math.cos(angle) * radius).toFixed(1));
+            const y = parseFloat((STAR_Y + Math.sin(angle) * radius).toFixed(1));
+            
+            // Circular Orbit Speed Equation: v = sqrt(G * M_star / r)
+            const orbitalSpeed = Math.sqrt((G * starConfig.mass) / radius);
+            
+            // Tangent velocity vector perpendicular to position angle
+            const vx = parseFloat((-Math.sin(angle) * orbitalSpeed).toFixed(2));
+            const vy = parseFloat((Math.cos(angle) * orbitalSpeed).toFixed(2));
+            
+            const mass = 5;
+            const visualRadius = Math.max(2, Math.min(12, Math.round(Math.cbrt(mass) * 2)));
+
+            planetsConfig.push({
+                x, y, vx, vy, mass,
+                radius: visualRadius,
+                color: generateRandomColor()
+            });
+
+            renderPlanetControls();
+            resetSimulation();
+        });
+
+        document.getElementById('applyBtn').addEventListener('click', () => {
+            syncInputsToConfig();
+            resetSimulation();
+        });
+
+        // Initial setup
+        renderPlanetControls();
+        resetSimulation();
+        animate();
+    </script>
+</body>
+</html>
